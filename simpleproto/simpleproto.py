@@ -17,8 +17,24 @@ class Field(object):
         self.required = required
 
     def validate(self, value):
+        """
+        Validates the value and presence of a field
+        """
+        if self._not_required_and_none(value):
+            return
+
         if value is None and self.required:
             raise ValidationError("Values is required but is not set")
+
+        self.validate_type(value)
+
+    def validate_type(self, value):
+        """
+        Validates the type of the field
+
+        Sub-classes should override this, but generally not self.validate()
+        """
+        raise NotImplemented()
 
     def default_value(self):
         return self.default
@@ -29,39 +45,42 @@ class Field(object):
 
 
 class NumberField(Field):
-    def validate(self, value):
-        if self._not_required_and_none(value):
-            return
-
+    def validate_type(self, value):
         # http://stackoverflow.com/questions/8169001/why-is-bool-a-subclass-of-int
         if isinstance(value, bool):
             raise ValidationError("Boolean is not a valid number")
         if not isinstance(value, (int, long, float, complex)):
             raise ValidationError("%s is not a valid number" % value)
 
-        super(NumberField, self).validate(value)
-
 
 class BooleanField(Field):
-    def validate(self, value):
-        if self._not_required_and_none(value):
-            return
-
+    def validate_type(self, value):
         if not isinstance(value, bool):
             raise ValidationError("%s is not a boolean" % value)
 
-        super(BooleanField, self).validate(value)
-
 
 class CharField(Field):
-    def validate(self, value):
-        if self._not_required_and_none(value):
-            return
-
+    def validate_type(self, value):
         if not isinstance(value, basestring):
-            raise ValidationError("%s is not a string - implicit casing is not performed" % value)
+            raise ValidationError("%s is not a string - implicit casting is not performed" % value)
 
-        super(CharField, self).validate(value)
+
+class ProtocolField(Field):
+    def __init__(self, proto_cls, **kwargs):
+        if isinstance(proto_cls, basestring):
+            # Find the actual class object that hasn't been defined yet???
+            pass
+        else:
+            assert isinstance(proto_cls, type)
+
+        self.proto_cls = proto_cls
+        super(ProtocolField, self).__init__(**kwargs)
+
+    def validate_type(self, value):
+        if not isinstance(value, self.proto_cls):
+            raise ValidationError("%s is not of type %s" % (value, self.proto_cls))
+
+        value.validate()
 
 
 class ProtocolMetaclass(type):
@@ -70,7 +89,7 @@ class ProtocolMetaclass(type):
 
     Proto fields are removed from the class object and stored in
     a dict named Class._proto_fields. This avoids accidental access
-    from an instance boject
+    from an instance object
     """
     def __new__(cls, clsname, bases, dct):
         class_attrs = {}
@@ -106,33 +125,46 @@ class Protocol(object):
             else:
                 raise NameError("%s is not defined" % name)
 
-        super(Protocol, self).__init__()
-
     def serialize(self):
         """
         Returns a JSON string
         """
         self.validate()
+        return json.dumps(self.to_dict())
 
+    def to_dict(self):
         d = {}
 
         proto_fields = self.__class__._proto_fields
         for name, field_obj in proto_fields.items():
             local_attr = self.__getattribute__(name)
             if local_attr is not None:
-                d[name] = local_attr
+                if isinstance(local_attr, Protocol):
+                    d[name] = local_attr.to_dict()
+                else:
+                    d[name] = local_attr
 
-        return json.dumps(d)
+        return d
 
     @classmethod
-    def deserialize(cls, json_str):
+    def deserialize(cls, json_repr):
         """
-        Return a protocol object from a JSON string
+        Return a protocol object from a JSON string or python dict
         """
         obj = cls()
 
-        json_obj = json.loads(json_str)
+        if isinstance(json_repr, basestring):
+            json_obj = json.loads(json_repr)
+        else:
+            json_obj = json_repr
+
         for name, val in json_obj.items():
+            if isinstance(val, dict):
+                # This is a compound object
+                proto_field = cls._proto_fields.get(name)
+                if proto_field is not None:
+                    val = proto_field.proto_cls.deserialize(val)
+
             obj.__setattr__(name, val)
 
         obj.validate()

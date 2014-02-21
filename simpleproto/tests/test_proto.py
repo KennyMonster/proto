@@ -1,6 +1,8 @@
 from nose.tools import assert_equal, assert_raises
 import simpleproto
 
+# Basic protocol messages
+
 
 class Message(simpleproto.Protocol):
     char_field = simpleproto.CharField()
@@ -19,9 +21,22 @@ class MessageDefaults(simpleproto.Protocol):
     bool_field = simpleproto.BooleanField(default=True)
     num_field = simpleproto.NumberField(default=100)
 
+# Nested protocol messages
+
+
+class ChildMessage(simpleproto.Protocol):
+    char_field = simpleproto.CharField()
+
+
+class ParentMessage(simpleproto.Protocol):
+    char_field = simpleproto.CharField()
+    child_field = simpleproto.ProtocolField(ChildMessage)
+
+# Tests
+
 
 def test_ctor_attrs():
-    # Does now throw
+    # Does not throw
     m = Message(char_field='test')
 
     assert_equal(m.char_field, 'test')
@@ -107,3 +122,41 @@ def test_deserialize():
     assert_equal(m.char_field, "hello")
     assert_equal(m.bool_field, True)
     assert_equal(m.num_field, 10)
+
+
+def test_nested_msgs():
+    p = ParentMessage()
+    c = ChildMessage()
+
+    p.char_field = "parent"
+    p.child_field = c
+
+    c.char_field = "child"
+
+    expected_json = '{"char_field": "parent", "child_field": {"char_field": "child"}}'
+
+    # Serialization
+    json_str = p.serialize()
+    assert_equal(json_str, expected_json)
+
+    # Deserialization
+    m = ParentMessage.deserialize(expected_json)
+    assert_equal(m.char_field, "parent")
+    assert_equal(m.child_field.char_field, "child")
+
+    # Serialize again for kicks
+    json_str = m.serialize()
+    assert_equal(json_str, expected_json)
+
+
+def test_nested_msgs_validation():
+    p = ParentMessage()
+    c = ChildMessage()
+
+    p.char_field = "parent"
+    p.child_field = c
+
+    c.char_field = 1000
+
+    with assert_raises(simpleproto.ValidationError):
+        p.validate()
