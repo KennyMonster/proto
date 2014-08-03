@@ -5,16 +5,16 @@ A simple way to define and verify JSON protocol messages using Django style mode
 
 Setup
 -------------
-cd proto
-virtualenv --no-site-packages env
-. env/bin/activate
-pip install -r requirements.txt
+    cd proto
+    virtualenv --no-site-packages env
+    . env/bin/activate
+    pip install -r requirements.txt
 
 
 Unit tests
 -------------
-cd simpleproto
-nosetests
+    cd simpleproto
+    nosetests
 
 
 Example
